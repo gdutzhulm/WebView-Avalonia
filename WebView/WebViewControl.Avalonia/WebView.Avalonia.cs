@@ -1,32 +1,52 @@
 ﻿using System;
+using System.Diagnostics;
 using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
+using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Data;
 using Avalonia.Input;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 
 namespace WebViewControl {
 
     partial class WebView : BaseControl {
 
         private static bool _imeFixApplied = false;
+        private static int _imeFixAttempts = 0;
+        private const int MaxImeFixAttempts = 20;
 
         [DllImport("libFixIME.dylib", EntryPoint = "apply_avnview_ime_fix")]
         private static extern int ApplyAvnViewImeFix();
 
         private static void ApplyImeFixIfNeeded() {
             if (_imeFixApplied) return;
-            _imeFixApplied = true;
 
             if (!RuntimeInformation.IsOSPlatform(OSPlatform.OSX)) return;
+            if (_imeFixAttempts >= MaxImeFixAttempts) return;
 
             try {
-                ApplyAvnViewImeFix();
-            } catch {
-                // libFixIME.dylib not found or failed to load - non-fatal
+                _imeFixAttempts++;
+                var result = ApplyAvnViewImeFix();
+                if (result == 1) {
+                    _imeFixApplied = true;
+                    return;
+                }
+
+                Debug.WriteLine($"IME fix attempt {_imeFixAttempts} failed: AvnView not ready.");
+            } catch (Exception ex) {
+                Debug.WriteLine($"IME fix attempt {_imeFixAttempts} failed: {ex.Message}");
             }
+
+            ScheduleImeFixRetry();
+        }
+
+        private static void ScheduleImeFixRetry() {
+            _ = Task.Delay(100).ContinueWith(
+                _ => Dispatcher.UIThread.Post(ApplyImeFixIfNeeded, DispatcherPriority.Background),
+                TaskScheduler.Default);
         }
 
         private bool IsInDesignMode => false;
@@ -51,6 +71,11 @@ namespace WebViewControl {
             VisualChildren.Add(chromium);
             chromium[!FocusableProperty] = this[!FocusableProperty];
             chromium.AddressChanged += (o, address) => ExecuteInUI(() => Address = address);
+        }
+
+        protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e) {
+            base.OnAttachedToVisualTree(e);
+            ApplyImeFixIfNeeded();
         }
 
         protected override void OnKeyDown(KeyEventArgs e) {
