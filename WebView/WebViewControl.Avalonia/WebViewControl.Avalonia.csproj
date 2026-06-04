@@ -68,4 +68,13 @@
     <PackageReference Include="Microsoft.CSharp" />
     <PackageReference Include="System.Runtime.Loader" />
   </ItemGroup>
+
+  <ItemGroup>
+    <!-- Include the patch targets file in the NuGet package to auto-fix ObjC class name conflicts on macOS -->
+    <!-- File name must match PackageId for NuGet auto-import -->
+    <None Include="buildTransitive\WebViewControl-Avalonia.targets" Pack="true" PackagePath="buildTransitive\$(PackageId).targets" />
+    <None Include="buildTransitive\WebViewControl-Avalonia.targets" Pack="true" PackagePath="build\$(PackageId).targets" />
+    <!-- IME fix dylib for macOS (fixes Chinese input method crash when CEF is active) -->
+    <None Include="native\osx-arm64\libFixIME.dylib" Pack="true" PackagePath="native\osx-arm64\" Condition="'$(Platform)' == 'ARM64'" />
+  </ItemGroup>
 </Project>

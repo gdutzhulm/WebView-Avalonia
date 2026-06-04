@@ -1,0 +1,192 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+
+  <!--
+    Fixes ObjC class name conflict between libcef.dylib (CEF) and libAvaloniaNative.dylib (Avalonia).
+    Both libraries define 'ExtensionDropdownHandler' which causes:
+    "Class ExtensionDropdownHandler is implemented in both ... This may cause spurious casting failures
+    and mysterious crashes."
+    This target patches libcef.dylib to rename the conflicting class at build time,
+    then re-signs the binary with an ad-hoc signature (required on Apple Silicon).
+  -->
+
+  <UsingTask TaskName="PatchCefObjCClassName" TaskFactory="RoslynCodeTaskFactory"
+             AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
+    <ParameterGroup>
+      <CefDylibPath ParameterType="System.String" Required="true" />
+      <OldClassName ParameterType="System.String" Required="true" />
+      <NewClassName ParameterType="System.String" Required="true" />
+      <WasPatched ParameterType="System.Boolean" Output="true" />
+    </ParameterGroup>
+    <Task>
+      <Using Namespace="System" />
+      <Using Namespace="System.IO" />
+      <Using Namespace="System.Text" />
+      <Code Type="Fragment" Language="cs">
+        <![CDATA[
+WasPatched = false;
+
+if (!File.Exists(CefDylibPath))
+{
+    Log.LogMessage(MessageImportance.Normal, $"PatchCefObjCClassName: File not found, skipping: {CefDylibPath}");
+    return true;
+}
+
+if (OldClassName.Length != NewClassName.Length)
+{
+    Log.LogError($"PatchCefObjCClassName: Old and new class names must have the same length. Old='{OldClassName}' ({OldClassName.Length}), New='{NewClassName}' ({NewClassName.Length})");
+    return false;
+}
+
+byte[] oldBytes = Encoding.ASCII.GetBytes(OldClassName);
+byte[] newBytes = Encoding.ASCII.GetBytes(NewClassName);
+
+byte[] fileBytes = File.ReadAllBytes(CefDylibPath);
+int patchCount = 0;
+
+for (int i = 0; i <= fileBytes.Length - oldBytes.Length; i++)
+{
+    bool match = true;
+    for (int j = 0; j < oldBytes.Length; j++)
+    {
+        if (fileBytes[i + j] != oldBytes[j])
+        {
+            match = false;
+            break;
+        }
+    }
+
+    if (match)
+    {
+        // Verify word boundaries to avoid patching partial matches within longer strings
+        bool validBoundaryBefore = (i == 0) || fileBytes[i - 1] == 0 ||
+            !((fileBytes[i - 1] >= 'A' && fileBytes[i - 1] <= 'Z') ||
+              (fileBytes[i - 1] >= 'a' && fileBytes[i - 1] <= 'z') ||
+              (fileBytes[i - 1] >= '0' && fileBytes[i - 1] <= '9') ||
+              fileBytes[i - 1] == '_');
+
+        int afterIdx = i + oldBytes.Length;
+        bool validBoundaryAfter = (afterIdx >= fileBytes.Length) || fileBytes[afterIdx] == 0 ||
+            !((fileBytes[afterIdx] >= 'A' && fileBytes[afterIdx] <= 'Z') ||
+              (fileBytes[afterIdx] >= 'a' && fileBytes[afterIdx] <= 'z') ||
+              (fileBytes[afterIdx] >= '0' && fileBytes[afterIdx] <= '9') ||
+              fileBytes[afterIdx] == '_');
+
+        if (validBoundaryBefore && validBoundaryAfter)
+        {
+            for (int j = 0; j < newBytes.Length; j++)
+            {
+                fileBytes[i + j] = newBytes[j];
+            }
+            patchCount++;
+            Log.LogMessage(MessageImportance.Normal, $"PatchCefObjCClassName: Patched occurrence at offset 0x{i:X8}");
+        }
+    }
+}
+
+if (patchCount > 0)
+{
+    File.WriteAllBytes(CefDylibPath, fileBytes);
+    WasPatched = true;
+    Log.LogMessage(MessageImportance.High, $"PatchCefObjCClassName: Successfully patched {patchCount} occurrence(s) of '{OldClassName}' -> '{NewClassName}' in {CefDylibPath}");
+}
+else
+{
+    Log.LogMessage(MessageImportance.Normal, $"PatchCefObjCClassName: No occurrences of '{OldClassName}' found in {CefDylibPath} (may already be patched)");
+}
+
+return true;
+        ]]>
+      </Code>
+    </Task>
+  </UsingTask>
+
+  <!--
+    Fix: CefGlue.Common targets add None items referencing $(OutDir)\libEGL.dylib etc.
+    with CopyToOutputDirectory=PreserveNewest. These files don't exist yet at that point,
+    causing MSB3030. Strip the copy metadata and handle the copy ourselves.
+  -->
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('OSX')) And ('$(CefGlueTargetPlatform)' == 'osx-arm64' Or '$(CefGlueTargetPlatform)' == 'osx-x64' Or '$(RuntimeIdentifier)' == 'osx-arm64' Or '$(RuntimeIdentifier)' == 'osx-x64')">
+    <None Update="$(OutDir)libEGL.dylib" CopyToOutputDirectory="" CopyToPublishDirectory="" />
+    <None Update="$(OutDir)libGLESv2.dylib" CopyToOutputDirectory="" CopyToPublishDirectory="" />
+    <None Update="$(OutDir)libvk_swiftshader.dylib" CopyToOutputDirectory="" CopyToPublishDirectory="" />
+  </ItemGroup>
+
+  <!--
+    CEF files must be deployed to the output directory.
+    CefGlue.Common targets add None items with CopyToOutputDirectory from CefRedistOSXARM64,
+    but MSBuild may skip them during incremental builds. This target ensures they're always copied.
+  -->
+  <Target Name="_DeployCefFiles"
+          BeforeTargets="CopyFilesToOutputDirectory"
+          Condition="$([MSBuild]::IsOSPlatform('OSX')) And ('@(CefRedistOSXARM64)' != '' Or '@(CefRedistOSX64)' != '')">
+    <!-- Copy all CEF redist files to output directory, preserving subdirectory structure -->
+    <Copy SourceFiles="@(CefRedistOSXARM64)" DestinationFiles="@(CefRedistOSXARM64->'$(OutDir)%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" Condition="'@(CefRedistOSXARM64)' != ''" />
+    <Copy SourceFiles="@(CefRedistOSX64)" DestinationFiles="@(CefRedistOSX64->'$(OutDir)%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" Condition="'@(CefRedistOSX64)' != ''" />
+    <!-- Copy browser process files to CefGlueBrowserProcess subfolder -->
+    <PropertyGroup>
+      <_CefBrowserProcessDir>$(OutDir)CefGlueBrowserProcess/</_CefBrowserProcessDir>
+    </PropertyGroup>
+    <MakeDir Directories="$(_CefBrowserProcessDir)" />
+    <!-- Copy CefGlueBrowserProcessFiles (Xilium.CefGlue.BrowserProcess + runtime deps) -->
+    <!-- Direct path since CefGlue.Common props may not be transitively imported -->
+    <ItemGroup Condition="'@(CefGlueBrowserProcessFiles)' == ''">
+      <_CefBrowserProcessSourceFiles Include="$(NuGetPackageRoot)cefglue.common.arm64/*/bin/osx-arm64/*" Condition="'$(RuntimeIdentifier)' == 'osx-arm64'" />
+      <_CefBrowserProcessSourceFiles Include="$(NuGetPackageRoot)cefglue.common.arm64/*/bin/osx-x64/*" Condition="'$(RuntimeIdentifier)' == 'osx-x64'" />
+      <_CefBrowserProcessSourceFiles Include="$(NuGetPackageRoot)cefglue.common/*/bin/osx-arm64/*" Condition="'$(RuntimeIdentifier)' == 'osx-arm64'" />
+      <_CefBrowserProcessSourceFiles Include="$(NuGetPackageRoot)cefglue.common/*/bin/osx-x64/*" Condition="'$(RuntimeIdentifier)' == 'osx-x64'" />
+    </ItemGroup>
+    <Copy SourceFiles="@(CefGlueBrowserProcessFiles);@(_CefBrowserProcessSourceFiles)" DestinationFolder="$(_CefBrowserProcessDir)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(OutDir)libEGL.dylib" DestinationFolder="$(_CefBrowserProcessDir)" SkipUnchangedFiles="true" Condition="Exists('$(OutDir)libEGL.dylib')" />
+    <Copy SourceFiles="$(OutDir)libGLESv2.dylib" DestinationFolder="$(_CefBrowserProcessDir)" SkipUnchangedFiles="true" Condition="Exists('$(OutDir)libGLESv2.dylib')" />
+    <Copy SourceFiles="$(OutDir)libvk_swiftshader.dylib" DestinationFolder="$(_CefBrowserProcessDir)" SkipUnchangedFiles="true" Condition="Exists('$(OutDir)libvk_swiftshader.dylib')" />
+  </Target>
+
+  <!-- Run after CEF files are copied to output directory -->
+  <Target Name="PatchCefExtensionDropdownHandler"
+          AfterTargets="CopyFilesToOutputDirectory"
+          Condition="$([MSBuild]::IsOSPlatform('OSX')) And ('$(CefGlueTargetPlatform)' == 'osx-arm64' Or '$(CefGlueTargetPlatform)' == 'osx-x64' Or '$(RuntimeIdentifier)' == 'osx-arm64' Or '$(RuntimeIdentifier)' == 'osx-x64')">
+
+    <PropertyGroup>
+      <_CefDylibPath>$(OutDir)libcef.dylib</_CefDylibPath>
+      <_OldClassName>ExtensionDropdownHandler</_OldClassName>
+      <!-- Replacement must be exactly 24 chars (same length). 'CEF' prefix avoids future conflicts. -->
+      <_NewClassName>CEFExtensionDropdownHand</_NewClassName>
+    </PropertyGroup>
+
+    <PatchCefObjCClassName
+      CefDylibPath="$(_CefDylibPath)"
+      OldClassName="$(_OldClassName)"
+      NewClassName="$(_NewClassName)"
+      Condition="Exists('$(_CefDylibPath)')">
+      <Output TaskParameter="WasPatched" PropertyName="_CefDylibWasPatched" />
+    </PatchCefObjCClassName>
+
+    <!-- Re-sign with ad-hoc signature after patching (required on Apple Silicon) -->
+    <Exec Command="codesign --force --sign - &quot;$(_CefDylibPath)&quot;"
+          Condition="'$(_CefDylibWasPatched)' == 'true' And Exists('$(_CefDylibPath)')" />
+
+    <Message Text="Re-signed patched libcef.dylib with ad-hoc signature"
+             Importance="High"
+             Condition="'$(_CefDylibWasPatched)' == 'true'" />
+
+  </Target>
+
+  <!--
+    IME Fix: Copies the pre-compiled ObjC dylib that patches AvnView.attributedSubstringForProposedRange:actualRange:
+    to validate NSRange before calling [NSMutableAttributedString attributedSubstringFromRange:].
+    This fixes crashes when using Chinese/Japanese input methods with CEF on macOS.
+    See: https://github.com/AvaloniaUI/Avalonia/issues/14222
+  -->
+  <Target Name="_CopyImeFixDylib"
+          BeforeTargets="CopyFilesToOutputDirectory"
+          Condition="$([MSBuild]::IsOSPlatform('OSX')) And ('$(RuntimeIdentifier)' == 'osx-arm64')">
+    <PropertyGroup>
+      <_ImeFixDylibSource>$(MSBuildThisFileDirectory)..\native\osx-arm64\libFixIME.dylib</_ImeFixDylibSource>
+    </PropertyGroup>
+    <Copy SourceFiles="$(_ImeFixDylibSource)"
+          DestinationFolder="$(OutDir)"
+          SkipUnchangedFiles="true"
+          Condition="Exists('$(_ImeFixDylibSource)')" />
+  </Target>
+
+</Project>

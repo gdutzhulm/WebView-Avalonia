@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Runtime.ExceptionServices;
+using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Data;
@@ -9,6 +10,24 @@ using Avalonia.Threading;
 namespace WebViewControl {
 
     partial class WebView : BaseControl {
+
+        private static bool _imeFixApplied = false;
+
+        [DllImport("libFixIME.dylib", EntryPoint = "apply_avnview_ime_fix")]
+        private static extern int ApplyAvnViewImeFix();
+
+        private static void ApplyImeFixIfNeeded() {
+            if (_imeFixApplied) return;
+            _imeFixApplied = true;
+
+            if (!RuntimeInformation.IsOSPlatform(OSPlatform.OSX)) return;
+
+            try {
+                ApplyAvnViewImeFix();
+            } catch {
+                // libFixIME.dylib not found or failed to load - non-fatal
+            }
+        }
 
         private bool IsInDesignMode => false;
 
@@ -83,6 +102,7 @@ namespace WebViewControl {
         }
 
         internal void InitializeBrowser(int initialWidth, int initialHeight) {
+            ApplyImeFixIfNeeded();
             chromium.CreateBrowser(initialWidth, initialHeight);
         }
 

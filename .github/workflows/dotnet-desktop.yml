@@ -38,16 +38,26 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-14          # Apple Silicon
+          # macOS ARM64 (Apple Silicon)
+          - os: macos-14
             runtime: osx-arm64
-          - os: macos-13          # Intel (避免 ARM Mac 交叉编译 x64 的潜在问题)
+            platform: ARM64
+          # macOS x64 (Intel)
+          - os: macos-13
             runtime: osx-x64
+            platform: x64
+          # Windows x64
           - os: windows-latest
             runtime: win-x64
+            platform: x64
+          # Windows ARM64
           - os: windows-latest
             runtime: win-arm64
+            platform: ARM64
+          # Linux x64
           - os: ubuntu-latest
             runtime: linux-x64
+            platform: x64
 
     steps:
       - name: Checkout code
@@ -58,13 +68,13 @@ jobs:
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
-      # 构建项目（注意：只能对 .csproj 指定 -r）
+      # Build with explicit Platform to pick the correct CefGlue package variant
       - name: Build project
         shell: bash
         run: |
-          EXTRA_PROPERTIES=""
+          EXTRA_PROPERTIES="/p:Platform=${{ matrix.platform }}"
           if [ "${{ runner.os }}" != "Windows" ]; then
-            EXTRA_PROPERTIES="/p:EnableWindowsTargeting=true"
+            EXTRA_PROPERTIES="$EXTRA_PROPERTIES /p:EnableWindowsTargeting=true"
           fi
 
           dotnet build ${{ env.PROJECT_PATH }} \
@@ -72,13 +82,13 @@ jobs:
             -r ${{ matrix.runtime }} \
             $EXTRA_PROPERTIES
 
-      # 打包（pack 不接受 -r，但需要 EnableWindowsTargeting 以避免 Windows 目标错误）
+      # Pack NuGet package (pack doesn't accept -r but needs Platform for correct package ID)
       - name: Pack NuGet package
         shell: bash
         run: |
-          EXTRA_PROPERTIES=""
+          EXTRA_PROPERTIES="/p:Platform=${{ matrix.platform }}"
           if [ "${{ runner.os }}" != "Windows" ]; then
-            EXTRA_PROPERTIES="/p:EnableWindowsTargeting=true"
+            EXTRA_PROPERTIES="$EXTRA_PROPERTIES /p:EnableWindowsTargeting=true"
           fi
 
           dotnet pack ${{ env.PROJECT_PATH }} \
@@ -90,7 +100,7 @@ jobs:
       - name: Upload NuGet artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: nupkgs-${{ matrix.os }}-${{ matrix.runtime }}
+          name: nupkgs-${{ matrix.os }}-${{ matrix.runtime }}-${{ matrix.platform }}
           path: nupkgs/*.nupkg
           retention-days: 30
 
