@@ -15,17 +15,6 @@ on:
         options:
           - ReleaseAvalonia
           - Debug
-      runtime:
-        description: 'Runtime identifier'
-        required: true
-        default: 'osx-arm64'
-        type: choice
-        options:
-          - osx-arm64
-          - osx-x64
-          - win-x64
-          - win-arm64
-          - linux-x64
 
 env:
   DOTNET_VERSION: '8.0.x'
@@ -40,23 +29,9 @@ jobs:
         include:
           # macOS ARM64 (Apple Silicon)
           - os: macos-14
-            runtime: osx-arm64
             platform: ARM64
           # macOS x64 (Intel)
           - os: macos-13
-            runtime: osx-x64
-            platform: x64
-          # Windows x64
-          - os: windows-latest
-            runtime: win-x64
-            platform: x64
-          # Windows ARM64
-          - os: windows-latest
-            runtime: win-arm64
-            platform: ARM64
-          # Linux x64
-          - os: ubuntu-latest
-            runtime: linux-x64
             platform: x64
 
     steps:
@@ -68,39 +43,26 @@ jobs:
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
-      # Build with explicit Platform to pick the correct CefGlue package variant
       - name: Build project
         shell: bash
         run: |
-          EXTRA_PROPERTIES="/p:Platform=${{ matrix.platform }}"
-          if [ "${{ runner.os }}" != "Windows" ]; then
-            EXTRA_PROPERTIES="$EXTRA_PROPERTIES /p:EnableWindowsTargeting=true"
-          fi
-
           dotnet build ${{ env.PROJECT_PATH }} \
             -c ReleaseAvalonia \
-            -r ${{ matrix.runtime }} \
-            $EXTRA_PROPERTIES
+            /p:Platform=${{ matrix.platform }}
 
-      # Pack NuGet package (pack doesn't accept -r but needs Platform for correct package ID)
       - name: Pack NuGet package
         shell: bash
         run: |
-          EXTRA_PROPERTIES="/p:Platform=${{ matrix.platform }}"
-          if [ "${{ runner.os }}" != "Windows" ]; then
-            EXTRA_PROPERTIES="$EXTRA_PROPERTIES /p:EnableWindowsTargeting=true"
-          fi
-
           dotnet pack ${{ env.PROJECT_PATH }} \
             -c ReleaseAvalonia \
+            --no-build \
             --output ./nupkgs \
-            /p:VersionSuffix=${{ github.run_number }} \
-            $EXTRA_PROPERTIES
+            /p:Platform=${{ matrix.platform }}
 
       - name: Upload NuGet artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: nupkgs-${{ matrix.os }}-${{ matrix.runtime }}-${{ matrix.platform }}
+          name: nupkgs-${{ matrix.os }}-${{ matrix.platform }}
           path: nupkgs/*.nupkg
           retention-days: 30
 

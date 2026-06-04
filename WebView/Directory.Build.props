@@ -12,8 +12,8 @@
     <AssemblyVersion>2.0.0.0</AssemblyVersion>
     <FileVersion>2.0.0.0</FileVersion>
     <!-- Please see https://github.com/OutSystems/WebView?tab=readme-ov-file#versioning for versioning rules -->
-    <!-- Windows 7 compatible version based on CEF 106 -->
-    <Version>2.106.12-avalonia11-win7</Version>
+    <!-- CEF 106.x based version for macOS -->
+    <Version>2.106.12-avalonia11-macos</Version>
     <Authors>OutSystems</Authors>
     <Product>WebViewControl</Product>
     <Copyright>Copyright © OutSystems 2023</Copyright>
