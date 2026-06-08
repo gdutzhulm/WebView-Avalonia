@@ -179,7 +179,7 @@ return true;
   -->
   <Target Name="_CopyImeFixDylib"
           BeforeTargets="CopyFilesToOutputDirectory"
-          Condition="$([MSBuild]::IsOSPlatform('OSX')) And ('$(RuntimeIdentifier)' == 'osx-arm64')">
+          Condition="$([MSBuild]::IsOSPlatform('OSX')) And ('$(RuntimeIdentifier)' == 'osx-arm64' Or '$(CefGlueTargetPlatform)' == 'osx-arm64' Or '$(Platform)' == 'ARM64' Or ('$(RuntimeIdentifier)' == '' And '$([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture)' == 'ARM64'))">
     <PropertyGroup>
       <_ImeFixDylibSource>$(MSBuildThisFileDirectory)..\native\osx-arm64\libFixIME.dylib</_ImeFixDylibSource>
     </PropertyGroup>
