@@ -2,9 +2,9 @@ name: Build and Pack NuGet
 
 on:
   push:
-    branches: [ main, master, ai-mac-fix ]
+    branches: [ main, master, ai-mac-fix, test-upgrade-cef ]
   pull_request:
-    branches: [ main, master, ai-mac-fix ]
+    branches: [ main, master, ai-mac-fix, test-upgrade-cef ]
   workflow_dispatch:
     inputs:
       configuration:
@@ -18,7 +18,12 @@ on:
 
 env:
   DOTNET_VERSION: '8.0.x'
-  PROJECT_PATH: 'WebView/WebViewControl.Avalonia/WebViewControl.Avalonia.csproj'
+  CEFGLUE_REPOSITORY: 'https://github.com/OutSystems/CefGlue.git'
+  CEFGLUE_BRANCH: 'RDEV-8412-bump-cef-to-134.3.9'
+  CEFGLUE_VERSION: '134.6998.178'
+  WEBVIEW_VERSION: '3.134.178-macos'
+  AVALONIA_PROJECT_PATH: 'WebView/WebViewControl.Avalonia/WebViewControl.Avalonia.csproj'
+  WPF_PROJECT_PATH: 'WebView/WebViewControl/WebViewControl.csproj'
 
 jobs:
   build-and-pack:
@@ -43,27 +48,48 @@ jobs:
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
-      - name: Build project
+      - name: Build local CefGlue packages
         shell: bash
         run: |
-          dotnet build ${{ env.PROJECT_PATH }} \
-            -c ReleaseAvalonia \
+          git clone --depth 1 --branch "$CEFGLUE_BRANCH" "$CEFGLUE_REPOSITORY" ../CefGlue-134
+          dotnet build ../CefGlue-134/CefGlue.Avalonia/CefGlue.Avalonia.csproj \
+            -c Release \
             /p:Platform=${{ matrix.platform }}
+          dotnet build ../CefGlue-134/CefGlue.WPF/CefGlue.WPF.csproj \
+            -c Release \
+            /p:Platform=${{ matrix.platform }}
+          mkdir -p local-nuget
+          cp ../CefGlue-134/Nuget/output/*.${CEFGLUE_VERSION}.nupkg local-nuget/
 
-      - name: Pack NuGet package
+      - name: Build WebView packages
         shell: bash
         run: |
-          dotnet pack ${{ env.PROJECT_PATH }} \
+          dotnet build ${{ env.AVALONIA_PROJECT_PATH }} \
             -c ReleaseAvalonia \
-            --no-build \
-            --output ./nupkgs \
             /p:Platform=${{ matrix.platform }}
+          dotnet build ${{ env.WPF_PROJECT_PATH }} \
+            -c ReleaseWPF \
+            /p:Platform=${{ matrix.platform }} \
+            /p:EnableWindowsTargeting=true
 
-      - name: Upload NuGet artifacts
+      - name: Collect NuGet packages
+        shell: bash
+        run: |
+          mkdir -p nupkgs
+          cp WebView/nuget/*.${WEBVIEW_VERSION}.nupkg nupkgs/
+
+      - name: Upload WebView NuGet artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: nupkgs-${{ matrix.os }}-${{ matrix.platform }}
+          name: webview-nupkgs-${{ matrix.os }}-${{ matrix.platform }}
           path: nupkgs/*.nupkg
+          retention-days: 30
+
+      - name: Upload local CefGlue NuGet artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: cefglue-nupkgs-${{ matrix.os }}-${{ matrix.platform }}
+          path: local-nuget/*.nupkg
           retention-days: 30
 
   publish-nuget:
@@ -75,7 +101,7 @@ jobs:
       - name: Download all NuGet artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: nupkgs-*
+          pattern: webview-nupkgs-*
           merge-multiple: true
           path: ./nupkgs
 
@@ -86,7 +112,7 @@ jobs:
 
       - name: Push to NuGet.org
         run: |
-          dotnet nuget push ./nupkgs/*.nupkg \
+          dotnet nuget push ./nupkgs/WebViewControl-*.nupkg \
             --api-key ${{ secrets.NUGET_API_KEY }} \
             --source https://api.nuget.org/v3/index.json \
             --skip-duplicate

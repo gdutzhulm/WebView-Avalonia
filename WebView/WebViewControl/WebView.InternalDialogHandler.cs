@@ -12,7 +12,7 @@ namespace WebViewControl {
                 OwnerWebView = webView;
             }
 
-            protected override bool OnFileDialog(CefBrowser browser, CefFileDialogMode mode, string title, string defaultFilePath, string[] acceptFilters, CefFileDialogCallback callback) {
+            protected override bool OnFileDialog(CefBrowser browser, CefFileDialogMode mode, string title, string defaultFilePath, string[] acceptFilters, string[] acceptExtensions, string[] acceptDescriptions, CefFileDialogCallback callback) {
                 if (OwnerWebView.DisableFileDialogs) {
                     return true;
                 }

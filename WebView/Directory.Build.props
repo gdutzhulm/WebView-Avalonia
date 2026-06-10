@@ -4,16 +4,16 @@
     <TargetDotnetVersion>net8.0</TargetDotnetVersion>
     <Platforms>x64;ARM64</Platforms>
     <AvaloniaVersion>11.0.10</AvaloniaVersion>
-    <!-- CEF 106.x is the last version supporting Windows 7 -->
-    <CefGlueVersion>106.5249.19-avalonia11</CefGlueVersion>
+    <!-- Windows 7 stays on CEF 106.x packages; current packages use the local CEF 134 CefGlue build. -->
+    <CefGlueVersion>134.6998.178</CefGlueVersion>
   </PropertyGroup>
 
   <PropertyGroup>
     <AssemblyVersion>2.0.0.0</AssemblyVersion>
     <FileVersion>2.0.0.0</FileVersion>
     <!-- Please see https://github.com/OutSystems/WebView?tab=readme-ov-file#versioning for versioning rules -->
-    <!-- CEF 106.x based version with macOS fixes -->
-    <Version>3.120.11-macos</Version>
+    <!-- CEF 134.x based version with macOS fixes -->
+    <Version>3.134.178-macos</Version>
     <Authors>OutSystems</Authors>
     <Product>WebViewControl</Product>
     <Copyright>Copyright © OutSystems 2023</Copyright>
