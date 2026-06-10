@@ -14,7 +14,12 @@ namespace WebViewControl {
         }
 
         internal static CefFrame GetFrame(this WebView webview, string frameName) {
-            return webview.GetCefBrowser()?.GetFrame(frameName ?? "");
+            var browser = webview.GetCefBrowser();
+            if (browser == null) {
+                return null;
+            }
+
+            return webview.IsMainFrame(frameName) ? browser.GetMainFrame() : browser.GetFrameByName(frameName);
         }
 
         internal static bool IsMainFrame(this WebView webview, string frameName) {
