@@ -35,8 +35,8 @@ jobs:
           # macOS ARM64 (Apple Silicon)
           - os: macos-14
             platform: ARM64
-          # macOS x64 (Intel)
-          - os: macos-13
+          # macOS x64 cross-build
+          - os: macos-14
             platform: x64
 
     steps:
